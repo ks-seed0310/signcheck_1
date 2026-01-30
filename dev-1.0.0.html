@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<meta charset="UTF-8">
+<title>PGP署名検証ツール</title>
+
+<h2>PGP署名検証ツール</h2>
+
+本体ファイル:
+<input type="file" id="file"><br><br>
+
+署名ファイル (.asc / .sig):
+<input type="file" id="sig"><br><br>
+
+公開鍵 (.asc):
+<input type="file" id="pub"><br><br>
+
+<button onclick="runVerify()">検証する</button>
+
+<pre id="out"></pre>
+
+<script src="https://unpkg.com/openpgp/dist/openpgp.min.js"></script>
+
+<script>
+const out = document.getElementById("out");
+
+function log(t){ out.textContent += t + "\n"; }
+
+async function runVerify() {
+  out.textContent = "";
+
+  try {
+    const f = file.files[0];
+    const s = sig.files[0];
+    const p = pub.files[0];
+
+    if (!f || !s || !p) {
+      log("ファイルが足りません");
+      return;
+    }
+
+    log("読み込み中...");
+
+    const data = new Uint8Array(await f.arrayBuffer());
+    const sigBuf = new Uint8Array(await s.arrayBuffer());
+    const pubText = await p.text();
+
+    const publicKey = await openpgp.readKey({ armoredKey: pubText });
+
+    let signature;
+
+    try {
+      signature = await openpgp.readSignature({
+        armoredSignature: new TextDecoder().decode(sigBuf)
+      });
+      log("ASCII署名として読み込みました");
+    } catch {
+      signature = await openpgp.readSignature({
+        binarySignature: sigBuf
+      });
+      log("バイナリ署名として読み込みました");
+    }
+
+    const message = await openpgp.createMessage({ binary: data });
+
+    const result = await openpgp.verify({
+      message,
+      signature,
+      verificationKeys: publicKey
+    });
+
+    let allGood = true;
+
+    log("\n検証結果:");
+
+    for (let i = 0; i < result.signatures.length; i++) {
+      try {
+        await result.signatures[i].verified;
+        log(`署名${i+1}: OK`);
+      } catch {
+        log(`署名${i+1}: NG`);
+        allGood = false;
+      }
+    }
+
+    log("");
+    log(allGood ? "✅ 全署名有効" : "❌ 無効な署名あり");
+
+  } catch (e) {
+    log("エラー発生:");
+    log(e.message);
+  }
+}
+</script>
+</html>
